@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Painel - Gaivota Reuniões</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 30px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 15px 20px; border-radius: 10px; border: 1px solid #334155; }
+        .card { background: #1e293b; padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 20px; }
+        input, button { padding: 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        button { background: #2563eb; font-weight: bold; cursor: pointer; border: none; }
+        button:hover { background: #1d4ed8; }
+        .btn-danger { background: #dc2626; width: auto; padding: 6px 12px; font-size: 0.85rem; }
+        .btn-danger:hover { background: #b91c1c; }
+        .meeting-list { display: grid; gap: 10px; margin-top: 15px; }
+        .meeting-item { background: #0f172a; padding: 15px; border-radius: 8px; border: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+        a { color: #38bdf8; text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h3>👤 Logado como: <span style="color: #38bdf8;">{{ current_user }}</span></h3>
+            <a href="{{ url_for('logout') }}" style="background: #dc2626; padding: 8px 15px; border-radius: 6px; color: #fff; font-size:0.9rem;">Sair</a>
+        </div>
+
+        <div class="card">
+            <h3>Criar Nova Reunião</h3>
+            <form action="{{ url_for('create_meeting') }}" method="POST">
+                <input type="text" name="title" placeholder="Título da Reunião" required>
+                <input type="text" name="room_code" placeholder="Código da Sala (Ex: sala-123)" required>
+                <input type="datetime-local" name="scheduled_time" required>
+                <button type="submit">Criar Reunião</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>Salas Disponíveis</h3>
+            <div class="meeting-list">
+                {% for m in meetings %}
+                <div class="meeting-item">
+                    <div>
+                        <strong>{{ m.title }}</strong> (Código: <code>{{ m.room_code }}</code>)<br>
+                        <small style="color: #94a3b8;">Criado por: {{ m.owner }}</small>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <a href="{{ url_for('room', room_code=m.room_code) }}">Entrar ➔</a>
+                        {% if current_user == 'admin' or current_user == m.owner %}
+                        <form action="{{ url_for('delete_meeting', meeting_id=m.id) }}" method="POST" style="margin:0;" onsubmit="return confirm('Tem certeza que deseja apagar esta sala?');">
+                            <button type="submit" class="btn-danger">Excluir</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <p style="color: #94a3b8; text-align: center;">Nenhuma reunião agendada no momento.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

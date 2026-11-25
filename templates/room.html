@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ meeting.title }} - Gaivota Reuniões</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 15px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #334155; }
+        .main-grid { display: flex; gap: 15px; flex: 1; min-height: 0; margin-top: 10px; }
+        
+        .video-area { flex: 2; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+        .video-wrapper { flex: 1; background: #000; border-radius: 10px; border: 2px solid #334155; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        .fallback { position: absolute; text-align: center; color: #94a3b8; display: none; padding: 20px; }
+        
+        .controls { display: flex; justify-content: space-between; background: #1e293b; padding: 10px; border-radius: 10px; border: 1px solid #334155; }
+        .btn { padding: 8px 14px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; color: #fff; background: #2563eb; transition: 0.2s; }
+        .btn:hover { background: #1d4ed8; }
+        .btn-off { background: #dc2626 !important; }
+        .btn-danger { background: #dc2626; }
+        .btn-danger:hover { background: #b91c1c; }
+
+        .sidebar { flex: 1; min-width: 320px; background: #1e293b; border-radius: 10px; border: 1px solid #334155; display: flex; flex-direction: column; min-height: 0; }
+        .tabs { display: flex; border-bottom: 1px solid #334155; }
+        .tab-btn { flex: 1; padding: 10px; background: transparent; border: none; color: #94a3b8; font-weight: bold; cursor: pointer; }
+        .tab-btn.active { color: #38bdf8; border-bottom: 2px solid #38bdf8; background: rgba(56,189,248,0.05); }
+        
+        .tab-content { display: none; flex: 1; flex-direction: column; padding: 12px; min-height: 0; }
+        .tab-content.active { display: flex; }
+        
+        .chat-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; margin-bottom: 8px; }
+        .msg { background: #0f172a; padding: 8px; border-radius: 6px; font-size: 0.9rem; border-left: 3px solid #38bdf8; word-break: break-all; }
+        .msg.sys { border-left-color: #64748b; color: #94a3b8; font-style: italic; }
+        .chat-input { display: flex; gap: 6px; }
+        .chat-input input { flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; }
+
+        .file-list, .report-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+        .card-file { background: #0f172a; padding: 8px; border-radius: 6px; font-size: 0.85rem; border: 1px solid #334155; }
+        .card-file a { color: #38bdf8; text-decoration: none; display: block; margin-top: 4px; font-weight: bold; }
+
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; z-index: 50; }
+        .modal-box { background: #1e293b; padding: 20px; border-radius: 10px; width: 90%; max-width: 400px; border: 1px solid #475569; display: flex; flex-direction: column; gap: 10px; }
+        .modal-box textarea { width: 100%; background: #0f172a; color: #fff; border: 1px solid #475569; border-radius: 6px; padding: 8px; resize: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>🎥 {{ meeting.title }} <span style="font-size:0.85rem; color:#94a3b8;">(Dono: {{ meeting.owner }})</span></h2>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <span style="background: #334155; padding: 5px 10px; border-radius: 15px; font-size: 0.85rem;">👤 {{ current_user }}</span>
+            <a href="{{ url_for('index') }}" class="btn btn-off" style="text-decoration:none; padding:6px 12px; font-size:0.85rem; background:#475569;">Sair</a>
+        </div>
+    </div>
+
+    <div class="main-grid">
+        <div class="video-area">
+            <div class="video-wrapper">
+                <video id="localVideo" autoplay playsinline muted></video>
+                <div id="videoFallback" class="fallback">
+                    <p>📷 Câmera ou Microfone aguardando permissão.</p>
+                    <button class="btn" onclick="initMedia()" style="margin-top: 8px; background: #059669;">Permitir Dispositivos</button>
+                </div>
+            </div>
+            <div class="controls">
+                <div style="display: flex; gap: 8px;">
+                    <button id="camBtn" class="btn" onclick="toggleCam()">📷 Câmera: ON</button>
+                    <button id="micBtn" class="btn" onclick="toggleMic()">🎤 Mic: ON</button>
+                </div>
+                <button class="btn btn-danger" onclick="openModal()">⚠️ Relatar Problema</button>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('chat', this)">💬 Chat</button>
+                <button class="tab-btn" onclick="switchTab('files', this)">📁 Arquivos</button>
+                {% if current_user == meeting.owner %}
+                <button class="tab-btn" onclick="switchTab('reports', this)">🔒 Relatórios</button>
+                {% endif %}
+            </div>
+
+            <!-- Chat -->
+            <div id="tab-chat" class="tab-content active">
+                <div id="chatList" class="chat-list">
+                    <div class="msg sys">Bem-vindo à sala!</div>
+                </div>
+                <div class="chat-input">
+                    <input type="text" id="msgInput" placeholder="Digite sua mensagem..." onkeypress="if(event.key==='Enter') sendMsg()">
+                    <button class="btn" onclick="sendMsg()">Enviar</button>
+                </div>
+            </div>
+
+            <!-- Arquivos -->
+            <div id="tab-files" class="tab-content">
+                <div style="display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid #334155; padding-bottom: 8px;">
+                    <input type="file" id="fileInput" style="font-size: 0.8rem; color:#cbd5e1;">
+                    <button class="btn" style="background:#059669;" onclick="uploadFile()">⬆️ Enviar Arquivo</button>
+                </div>
+                <div id="filesList" class="file-list">
+                    {% for f in files %}
+                    <div class="card-file">
+                        <div>Enviado por <b>{{ f.sender }}</b></div>
+                        <a href="{{ url_for('static', filename='uploads/' + f.filename) }}" download>⬇️ Baixar {{ f.original_name }}</a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Relatórios (Exclusivo Dono) -->
+            {% if current_user == meeting.owner %}
+            <div id="tab-reports" class="tab-content">
+                <p style="font-size: 0.75rem; color: #94a3b8; margin:0;">Denúncias anônimas recebidas:</p>
+                <div id="reportsList" class="report-list">
+                    {% for fb in feedbacks %}
+                    <div class="card-file" style="border-left: 3px solid #dc2626;">
+                        <small style="color: #94a3b8;">{{ fb.timestamp.strftime('%H:%M') }}</small>
+                        <p style="margin: 4px 0 0 0;">{{ fb.message }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Modal Relatório -->
+    <div id="reportModal" class="modal">
+        <div class="modal-box">
+            <h3 style="margin:0; color:#f87171;">⚠️ Relatório Anônimo</h3>
+            <p style="margin:0; font-size:0.8rem; color:#cbd5e1;">Enviado diretamente ao dono da sala sem identificar você.</p>
+            <textarea id="reportText" rows="4" placeholder="Descreva o problema..."></textarea>
+            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                <button class="btn btn-off" onclick="closeModal()" style="background:#475569 !important;">Cancelar</button>
+                <button class="btn btn-danger" onclick="sendReport()">Enviar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const roomCode = "{{ meeting.room_code }}";
+        const currentUser = "{{ current_user }}";
+
+        socket.emit('join', { room: roomCode, username: currentUser });
+
+        function switchTab(name, btn) {
+            document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
+            document.getElementById('tab-' + name).classList.add('active');
+            btn.classList.add('active');
+        }
+
+        // Inicialização inteligente: tenta pegar vídeo e áudio; se o seu PC não tiver câmera, pega só o áudio sem travar
+        let localStream = null;
+        async function initMedia() {
+            const video = document.getElementById('localVideo');
+            const fallback = document.getElementById('videoFallback');
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            } catch (err) {
+                try {
+                    // Fallback caso o usuário não tenha webcam (como é o seu caso)
+                    localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+                    console.warn("Câmera não encontrada. Apenas o microfone foi ativado.");
+                } catch (err2) {
+                    console.error("Erro de hardware:", err2);
+                    fallback.style.display = 'block';
+                    return;
+                }
+            }
+            video.srcObject = localStream;
+            video.style.display = 'block';
+            fallback.style.display = 'none';
+        }
+        initMedia();
+
+        function toggleCam() {
+            if (!localStream) return alert("Mídia não inicializada.");
+            const track = localStream.getVideoTracks()[0];
+            if (!track) return alert("Nenhuma câmera disponível neste dispositivo.");
+            
+            track.enabled = !track.enabled;
+            const btn = document.getElementById('camBtn');
+            if (track.enabled) {
+                btn.innerText = "📷 Câmera: ON";
+                btn.classList.remove('btn-off');
+            } else {
+                btn.innerText = "📷 Câmera: OFF";
+                btn.classList.add('btn-off');
+            }
+        }
+
+        function toggleMic() {
+            if (!localStream) return alert("Mídia não inicializada.");
+            const track = localStream.getAudioTracks()[0];
+            if (!track) return alert("Nenhum microfone disponível.");
+            
+            track.enabled = !track.enabled;
+            const btn = document.getElementById('micBtn');
+            if (track.enabled) {
+                btn.innerText = "🎤 Mic: ON";
+                btn.classList.remove('btn-off');
+            } else {
+                btn.innerText = "🎤 Mic: OFF";
+                btn.classList.add('btn-off');
+            }
+        }
+
+        // Chat
+        function sendMsg() {
+            const input = document.getElementById('msgInput');
+            const val = input.value.trim();
+            if (!val) return;
+            socket.emit('text_message', { room: roomCode, user: currentUser, msg: val });
+            input.value = "";
+        }
+
+        socket.on('message', function(data) {
+            const list = document.getElementById('chatList');
+            const div = document.createElement('div');
+            div.className = data.user === 'Sistema' ? 'msg sys' : 'msg';
+            div.innerHTML = data.user === 'Sistema' ? data.msg : `<b>${data.user}:</b> ${data.msg}`;
+            list.appendChild(div);
+            list.scrollTop = list.scrollHeight;
+        });
+
+        // Arquivos
+        async function uploadFile() {
+            const input = document.getElementById('fileInput');
+            if (!input.files.length) return alert("Selecione um arquivo.");
+            const form = new FormData();
+            form.append('file', input.files[0]);
+
+            const res = await fetch(`/upload/${roomCode}`, { method: 'POST', body: form });
+            if (res.ok) {
+                input.value = "";
+            } else {
+                alert("Erro ao enviar arquivo.");
+            }
+        }
+
+        socket.on('new_file', function(data) {
+            const list = document.getElementById('filesList');
+            const div = document.createElement('div');
+            div.className = 'card-file';
+            div.innerHTML = `<div>Enviado por <b>${data.sender}</b></div><a href="${data.url}" download>⬇️ Baixar ${data.original_name}</a>`;
+            list.prepend(div);
+        });
+
+        // Relatórios
+        function openModal() { document.getElementById('reportModal').style.display = 'flex'; }
+        function closeModal() { document.getElementById('reportModal').style.display = 'none'; }
+
+        function sendReport() {
+            const text = document.getElementById('reportText').value.trim();
+            if (!text) return alert("Escreva a mensagem.");
+            socket.emit('send_feedback', { room: roomCode, feedback: text });
+            document.getElementById('reportText').value = "";
+            closeModal();
+            alert("Relatório enviado com sucesso!");
+        }
+
+        socket.on('new_private_feedback', function(data) {
+            const list = document.getElementById('reportsList');
+            if (!list) return;
+            const div = document.createElement('div');
+            div.className = 'card-file';
+            div.style.borderLeft = '3px solid #dc2626';
+            div.innerHTML = `<small style="color:#94a3b8;">${data.time}</small><p style="margin:4px 0 0 0;">${data.message}</p>`;
+            list.prepend(div);
+        });
+    </script>
+</body>
+</html>
